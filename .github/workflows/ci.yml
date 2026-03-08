@@ -176,11 +176,22 @@ jobs:
 
       - name: Verify fix by re-running checks
         if: steps.heal.outcome == 'success'
-        continue-on-error: true
         id: recheck
+        shell: bash
         run: |
+          set +e
           python -m pytest -q
+          pytest_rc=$?
           python -m ruff check .
+          ruff_rc=$?
+
+          if [ "$pytest_rc" -eq 0 ] && [ "$ruff_rc" -eq 0 ]; then
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          exit 0
 
       - name: Set change status
         if: steps.heal.outcome == 'success'
@@ -205,7 +216,7 @@ jobs:
 
       - name: Create pull request with auto-fix
         continue-on-error: true
-        if: github.event_name != 'pull_request' && steps.pr_token.outputs.available == 'true' && steps.has_changes.outputs.changed == 'true' && steps.recheck.outcome == 'success'
+        if: github.event_name != 'pull_request' && steps.pr_token.outputs.available == 'true' && steps.has_changes.outputs.changed == 'true' && steps.recheck.outputs.passed == 'true'
         uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ secrets.AUTO_PR_TOKEN }}
@@ -230,5 +241,5 @@ jobs:
             self-healing
 
       - name: No-op when no validated fix
-        if: steps.heal.outcome != 'success' || steps.pr_token.outputs.available != 'true' || steps.has_changes.outputs.changed != 'true' || steps.recheck.outcome != 'success'
+        if: steps.heal.outcome != 'success' || steps.pr_token.outputs.available != 'true' || steps.has_changes.outputs.changed != 'true' || steps.recheck.outputs.passed != 'true'
         run: echo "No validated fix produced by self-healing agent."
