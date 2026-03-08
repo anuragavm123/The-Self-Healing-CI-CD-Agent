@@ -130,6 +130,7 @@ jobs:
     needs: ci
     runs-on: ubuntu-latest
     if: |
+      always() &&
       needs.ci.outputs.failed == 'true' &&
       github.event_name != 'pull_request' &&
       !startsWith(github.ref_name, 'self-heal/') &&
