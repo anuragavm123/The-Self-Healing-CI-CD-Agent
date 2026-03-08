@@ -1,0 +1,148 @@
+name: CI + Self-Heal
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - "feature/**"
+      - "demo/**"
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    outputs:
+      failed: ${{ steps.detect_failure.outputs.failed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests and lint (capture logs)
+        id: ci_checks
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          (python -m pytest -q && python -m ruff check .) 2>&1 | tee ci_failure.log
+
+      - name: Upload failure log artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-failure-log
+          path: ci_failure.log
+
+      - name: Detect failure state
+        id: detect_failure
+        shell: bash
+        run: |
+          if [ "${{ steps.ci_checks.outcome }}" = "success" ]; then
+            echo "failed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fail CI job when checks failed
+        if: steps.detect_failure.outputs.failed == 'true'
+        run: exit 1
+
+  self_heal:
+    needs: ci
+    runs-on: ubuntu-latest
+    if: |
+      needs.ci.outputs.failed == 'true' &&
+      github.event_name != 'pull_request' &&
+      !startsWith(github.ref_name, 'self-heal/') &&
+      github.actor != 'github-actions[bot]'
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Download failure logs
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-failure-log
+
+      - name: Run self-healing agent
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-4o' }}
+          LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'openai' }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL || 'deepseek-coder' }}
+        run: |
+          python scripts/run_self_heal.py --log-file ci_failure.log --repo-root . --output self_heal_result.json
+          cat self_heal_result.json
+
+      - name: Verify fix by re-running checks
+        continue-on-error: true
+        id: recheck
+        run: |
+          python -m pytest -q
+          python -m ruff check .
+
+      - name: Set change status
+        id: has_changes
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create pull request with auto-fix
+        if: steps.has_changes.outputs.changed == 'true' && steps.recheck.outcome == 'success'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: self-heal/${{ github.run_id }}
+          commit-message: "fix(ci): self-healing patch for failed pipeline"
+          title: "fix(ci): self-healing patch for failed pipeline"
+          body: |
+            ## 🤖 Self-Healing CI/CD Agent
+
+            This PR was created automatically after a failed CI run.
+
+            ### What happened
+            - CI detected failed test/lint checks.
+            - Agent analyzed `ci_failure.log`.
+            - Proposed and applied a minimal fix.
+            - Re-ran checks before opening this PR.
+
+            ### Why
+            Reduce Mean Time To Repair (MTTR) for routine failures.
+          labels: |
+            automated-fix
+            self-healing
+
+      - name: No-op when no validated fix
+        if: steps.has_changes.outputs.changed != 'true' || steps.recheck.outcome != 'success'
+        run: echo "No validated fix produced by self-healing agent."
