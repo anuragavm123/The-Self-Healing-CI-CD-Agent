@@ -240,6 +240,21 @@ jobs:
             automated-fix
             self-healing
 
+      - name: Explain PR decision
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Self-Heal PR Decision"
+            echo ""
+            echo "- Event is pull_request: ${{ github.event_name == 'pull_request' }}"
+            echo "- Auto PR token available: ${{ steps.pr_token.outputs.available || 'false' }}"
+            echo "- Fix changed files: ${{ steps.has_changes.outputs.changed || 'false' }}"
+            echo "- Recheck passed: ${{ steps.recheck.outputs.passed || 'false' }}"
+            echo ""
+            echo "PR is created only when: event != pull_request, token=true, changed=true, recheck=true"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: No-op when no validated fix
         if: steps.heal.outcome != 'success' || steps.pr_token.outputs.available != 'true' || steps.has_changes.outputs.changed != 'true' || steps.recheck.outputs.passed != 'true'
         run: echo "No validated fix produced by self-healing agent."
