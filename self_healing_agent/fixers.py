@@ -12,11 +12,12 @@ def _rule_based_fix(log_text: str, repo_root: Path) -> dict[str, Any] | None:
             return None
 
         text = file_path.read_text(encoding="utf-8")
-        if "return a + b + 1" in text:
+        off_by_one_match = re.search(r"return\s+a\s*\+\s*b\s*\+\s*1\b", text)
+        if off_by_one_match:
             return {
                 "reason": "Off-by-one bug in add() implementation",
                 "file_path": "src/math_utils.py",
-                "old_code": "return a + b + 1",
+                "old_code": off_by_one_match.group(0),
                 "new_code": "return a + b",
             }
 
