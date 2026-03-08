@@ -190,7 +190,7 @@ jobs:
         if: steps.has_changes.outputs.changed == 'true' && steps.recheck.outcome == 'success'
         uses: peter-evans/create-pull-request@v7
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.AUTO_PR_TOKEN || secrets.GITHUB_TOKEN }}
           branch: self-heal/${{ github.run_id }}
           commit-message: "fix(ci): self-healing patch for failed pipeline"
           title: "fix(ci): self-healing patch for failed pipeline"

@@ -32,6 +32,7 @@ Reduce **Mean Time to Repair (MTTR)** for routine failures by moving from alert-
 1. Add repository secrets/variables:
    - `OPENAI_API_KEY` (for GPT-4o), or
    - `DEEPSEEK_API_KEY` (for DeepSeek)
+  - `AUTO_PR_TOKEN` (optional PAT fallback for creating PRs when `GITHUB_TOKEN` is restricted)
    - Optional repo vars:
      - `LLM_PROVIDER` = `openai`, `deepseek`, or `ollama`
      - `OPENAI_MODEL` (default: `gpt-4o`)
@@ -40,6 +41,9 @@ Reduce **Mean Time to Repair (MTTR)** for routine failures by moving from alert-
      - `OLLAMA_BASE_URL` (default: `http://127.0.0.1:11434/v1`)
 
 2. Ensure default branch is one of: `main` / `develop` (or trigger via `workflow_dispatch`).
+3. In **Settings → Actions → General**, set:
+  - **Workflow permissions**: `Read and write permissions`
+  - Enable **Allow GitHub Actions to create and approve pull requests**
 
 ### Using local Ollama (no paid API key)
 
