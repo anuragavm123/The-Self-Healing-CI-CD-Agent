@@ -156,6 +156,8 @@ jobs:
           name: ci-failure-log
 
       - name: Run self-healing agent
+        id: heal
+        continue-on-error: true
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-4o' }}
@@ -170,6 +172,7 @@ jobs:
           cat self_heal_result.json
 
       - name: Verify fix by re-running checks
+        if: steps.heal.outcome == 'success'
         continue-on-error: true
         id: recheck
         run: |
@@ -177,6 +180,7 @@ jobs:
           python -m ruff check .
 
       - name: Set change status
+        if: steps.heal.outcome == 'success'
         id: has_changes
         shell: bash
         run: |
@@ -187,6 +191,7 @@ jobs:
           fi
 
       - name: Create pull request with auto-fix
+        continue-on-error: true
         if: steps.has_changes.outputs.changed == 'true' && steps.recheck.outcome == 'success'
         uses: peter-evans/create-pull-request@v7
         with:
@@ -212,5 +217,5 @@ jobs:
             self-healing
 
       - name: No-op when no validated fix
-        if: steps.has_changes.outputs.changed != 'true' || steps.recheck.outcome != 'success'
+        if: steps.heal.outcome != 'success' || steps.has_changes.outputs.changed != 'true' || steps.recheck.outcome != 'success'
         run: echo "No validated fix produced by self-healing agent."
