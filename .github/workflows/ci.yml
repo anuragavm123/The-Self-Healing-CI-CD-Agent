@@ -131,8 +131,7 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       always() &&
-      needs.ci.outputs.failed == 'true' &&
-      github.event_name != 'pull_request' &&
+      (needs.ci.result == 'failure' || needs.ci.outputs.failed == 'true') &&
       !startsWith(github.ref_name, 'self-heal/') &&
       github.actor != 'github-actions[bot]'
     permissions:
@@ -142,7 +141,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.head_ref || github.ref_name }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -196,7 +195,7 @@ jobs:
 
       - name: Create pull request with auto-fix
         continue-on-error: true
-        if: steps.has_changes.outputs.changed == 'true' && steps.recheck.outcome == 'success'
+        if: github.event_name != 'pull_request' && steps.has_changes.outputs.changed == 'true' && steps.recheck.outcome == 'success'
         uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ secrets.AUTO_PR_TOKEN || secrets.GITHUB_TOKEN }}
