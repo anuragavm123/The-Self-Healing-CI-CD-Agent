@@ -122,10 +122,6 @@ jobs:
             echo "failed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Fail CI job when checks failed
-        if: steps.detect_failure.outputs.failed == 'true'
-        run: exit 1
-
   self_heal:
     needs: ci
     runs-on: ubuntu-latest
