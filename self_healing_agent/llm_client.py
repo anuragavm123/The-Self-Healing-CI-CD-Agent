@@ -18,6 +18,12 @@ class LLMConfig:
 def load_llm_config() -> LLMConfig | None:
     provider = os.getenv("LLM_PROVIDER", "openai").lower()
 
+    if provider == "ollama":
+        model = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b")
+        base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1")
+        api_key = os.getenv("OLLAMA_API_KEY", "ollama")
+        return LLMConfig(model=model, api_key=api_key, base_url=base_url)
+
     if provider == "deepseek":
         api_key = os.getenv("DEEPSEEK_API_KEY", "")
         if not api_key:

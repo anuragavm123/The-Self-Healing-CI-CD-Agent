@@ -33,11 +33,22 @@ Reduce **Mean Time to Repair (MTTR)** for routine failures by moving from alert-
    - `OPENAI_API_KEY` (for GPT-4o), or
    - `DEEPSEEK_API_KEY` (for DeepSeek)
    - Optional repo vars:
-     - `LLM_PROVIDER` = `openai` or `deepseek`
+     - `LLM_PROVIDER` = `openai`, `deepseek`, or `ollama`
      - `OPENAI_MODEL` (default: `gpt-4o`)
      - `DEEPSEEK_MODEL` (default: `deepseek-coder`)
+     - `OLLAMA_MODEL` (default: `qwen2.5-coder:7b`)
+     - `OLLAMA_BASE_URL` (default: `http://127.0.0.1:11434/v1`)
 
 2. Ensure default branch is one of: `main` / `develop` (or trigger via `workflow_dispatch`).
+
+### Using local Ollama (no paid API key)
+
+- Use a **self-hosted GitHub runner** on the same machine/network as Ollama.
+- Set repo variable `LLM_PROVIDER=ollama`.
+- Ensure Ollama is running and model is pulled, for example:
+  - `ollama pull qwen2.5-coder:7b`
+  - `ollama serve`
+- If Ollama is on another host, set `OLLAMA_BASE_URL` accordingly.
 
 ## Demo Script (what to show live)
 
