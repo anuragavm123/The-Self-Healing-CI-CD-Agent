@@ -21,6 +21,21 @@ def _rule_based_fix(log_text: str, repo_root: Path) -> dict[str, Any] | None:
                 "new_code": "return a + b",
             }
 
+    if "test_word_count_handles_irregular_spacing" in log_text and "word_count(" in log_text:
+        file_path = repo_root / "src" / "math_utils.py"
+        if not file_path.exists():
+            return None
+
+        text = file_path.read_text(encoding="utf-8")
+        off_by_one_match = re.search(r"return\s+count\s*\+\s*1\b", text)
+        if off_by_one_match:
+            return {
+                "reason": "Off-by-one bug in word_count() implementation",
+                "file_path": "src/math_utils.py",
+                "old_code": off_by_one_match.group(0),
+                "new_code": "return count",
+            }
+
     lint_match = re.search(r"(?P<path>src/.+?\.py):\d+:\d+:\s+F401", log_text)
     if lint_match:
         target_path = lint_match.group("path")
