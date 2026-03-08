@@ -42,13 +42,17 @@ Reduce **Mean Time to Repair (MTTR)** for routine failures by moving from alert-
 ## Demo Script (what to show live)
 
 1. Start with green pipeline on current code.
-2. **Manually break code** in `src/math_utils.py`:
-   - Change `return a + b` to `return a + b + 1`
-3. Push commit to GitHub.
+2. Trigger **Actions → CI + Self-Heal → Run workflow** and choose one:
+  - `simulate_failure = true` for a test failure demo, or
+  - `simulate_lint_failure = true` for a lint (`F401`) failure demo.
+  - Do not set both to `true` in the same run (workflow will fail fast).
+3. (Alternative) Manually break `src/math_utils.py` by changing `return a + b` to `return a + b + 1`, then push.
 4. Show CI failure in Actions.
-5. Show self-heal job reading `ci_failure.log`, identifying assertion failure, applying fix.
+5. Show self-heal job reading `ci_failure.log`, identifying the root cause, applying fix.
 6. Show auto-created PR (`self-heal/<run_id>`) with corrected code.
 7. Merge PR and show pipeline back to green.
+
+Tip: each run now writes the selected mode to the GitHub job summary (`CI + Self-Heal Run Mode`).
 
 ## Optional local run
 

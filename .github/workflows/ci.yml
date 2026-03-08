@@ -9,6 +9,17 @@ on:
       - "demo/**"
   pull_request:
   workflow_dispatch:
+    inputs:
+      simulate_failure:
+        description: "Inject a unit-test failure for demo purposes"
+        required: false
+        default: false
+        type: boolean
+      simulate_lint_failure:
+        description: "Inject a lint failure (F401) for demo purposes"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   ci:
@@ -28,6 +39,63 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: Publish selected run mode
+        shell: bash
+        run: |
+          mode="normal-ci"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "${{ inputs.simulate_failure }}" = "true" ]; then
+              mode="simulate_failure (unit test)"
+            elif [ "${{ inputs.simulate_lint_failure }}" = "true" ]; then
+              mode="simulate_lint_failure (ruff F401)"
+            else
+              mode="workflow_dispatch (no simulation)"
+            fi
+          fi
+
+          {
+            echo "## CI + Self-Heal Run Mode"
+            echo ""
+            echo "- Event: ${{ github.event_name }}"
+            echo "- Mode: ${mode}"
+            echo "- Ref: ${{ github.ref_name }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Validate demo inputs
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          if [ "${{ inputs.simulate_failure }}" = "true" ] && [ "${{ inputs.simulate_lint_failure }}" = "true" ]; then
+            echo "Choose only one demo mode: simulate_failure OR simulate_lint_failure"
+            exit 1
+          fi
+
+      - name: Simulate failure (demo mode)
+        if: github.event_name == 'workflow_dispatch' && inputs.simulate_failure
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          file_path = Path("src/math_utils.py")
+          text = file_path.read_text(encoding="utf-8")
+          if "return a + b\n" in text:
+              file_path.write_text(text.replace("return a + b\n", "return a + b + 1\n", 1), encoding="utf-8")
+          print("Injected demo failure into src/math_utils.py")
+          PY
+
+      - name: Simulate lint failure (demo mode)
+        if: github.event_name == 'workflow_dispatch' && inputs.simulate_lint_failure && !inputs.simulate_failure
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          file_path = Path("src/__init__.py")
+          text = file_path.read_text(encoding="utf-8")
+          if "import os\n" not in text:
+              file_path.write_text("import os\n\n" + text, encoding="utf-8")
+          print("Injected lint failure (F401) into src/__init__.py")
+          PY
 
       - name: Run tests and lint (capture logs)
         id: ci_checks
