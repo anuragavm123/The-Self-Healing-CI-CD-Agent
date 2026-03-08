@@ -85,3 +85,4 @@ python scripts/run_self_heal.py --log-file ci_failure.log --repo-root .
 - The agent uses deterministic safety-first rules first, then optional model suggestion.
 - PR is created only if a fix is applied **and** checks pass after the fix.
 - Workflow skips self-heal for PR events and self-heal branches to avoid loops.
+- Any small doc-only commit can be used to trigger a fresh demo run safely.
