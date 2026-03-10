@@ -20,6 +20,16 @@ on:
         required: false
         default: false
         type: boolean
+      simulate_scenario:
+        description: "Advanced demo scenario"
+        required: false
+        default: none
+        type: choice
+        options:
+          - none
+          - nonmath_wordcount
+          - multi_failure
+          - lint_and_test
 
 jobs:
   ci:
@@ -45,7 +55,9 @@ jobs:
         run: |
           mode="normal-ci"
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            if [ "${{ inputs.simulate_failure }}" = "true" ]; then
+            if [ "${{ inputs.simulate_scenario }}" != "none" ]; then
+              mode="scenario:${{ inputs.simulate_scenario }}"
+            elif [ "${{ inputs.simulate_failure }}" = "true" ]; then
               mode="simulate_failure (unit test)"
             elif [ "${{ inputs.simulate_lint_failure }}" = "true" ]; then
               mode="simulate_lint_failure (ruff F401)"
@@ -66,10 +78,44 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
+          if [ "${{ inputs.simulate_scenario }}" != "none" ] && [ "${{ inputs.simulate_failure }}" = "true" -o "${{ inputs.simulate_lint_failure }}" = "true" ]; then
+            echo "Choose either legacy toggles or simulate_scenario, not both"
+            exit 1
+          fi
+
           if [ "${{ inputs.simulate_failure }}" = "true" ] && [ "${{ inputs.simulate_lint_failure }}" = "true" ]; then
             echo "Choose only one demo mode: simulate_failure OR simulate_lint_failure"
             exit 1
           fi
+
+      - name: Simulate advanced scenario (demo mode)
+        if: github.event_name == 'workflow_dispatch' && inputs.simulate_scenario != 'none'
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          scenario = "${{ inputs.simulate_scenario }}"
+          math_file = Path("src/math_utils.py")
+          init_file = Path("src/__init__.py")
+
+          math_text = math_file.read_text(encoding="utf-8")
+          init_text = init_file.read_text(encoding="utf-8")
+
+          if scenario == "nonmath_wordcount":
+              math_text = math_text.replace("return count\n", "return count + 1\n", 1)
+          elif scenario == "multi_failure":
+              math_text = math_text.replace("return a + b\n", "return a + b + 1\n", 1)
+              math_text = math_text.replace("return count\n", "return count + 1\n", 1)
+          elif scenario == "lint_and_test":
+              math_text = math_text.replace("return a + b\n", "return a + b + 1\n", 1)
+              if "import os\n" not in init_text:
+                  init_text = "import os\n\n" + init_text
+
+          math_file.write_text(math_text, encoding="utf-8")
+          init_file.write_text(init_text, encoding="utf-8")
+          print(f"Injected advanced scenario: {scenario}")
+          PY
 
       - name: Simulate failure (demo mode)
         if: github.event_name == 'workflow_dispatch' && inputs.simulate_failure

@@ -61,6 +61,10 @@ Reduce **Mean Time to Repair (MTTR)** for routine failures by moving from alert-
   - `simulate_failure = true` for a test failure demo, or
   - `simulate_lint_failure = true` for a lint (`F401`) failure demo.
   - Do not set both to `true` in the same run (workflow will fail fast).
+  - For advanced demos, use `simulate_scenario` (and leave boolean toggles off):
+    - `nonmath_wordcount` → breaks `word_count` logic only
+    - `multi_failure` → breaks both `add` and `word_count` to show sequential healing
+    - `lint_and_test` → introduces both test and lint failures
 3. (Alternative) Manually break `src/math_utils.py` by changing `return a + b` to `return a + b + 1`, then push.
 4. Show CI failure in Actions.
 5. Show self-heal job reading `ci_failure.log`, identifying the root cause, applying fix.
@@ -68,6 +72,12 @@ Reduce **Mean Time to Repair (MTTR)** for routine failures by moving from alert-
 7. Merge PR and show pipeline back to green.
 
 Tip: each run now writes the selected mode to the GitHub job summary (`CI + Self-Heal Run Mode`).
+
+### Complex scenarios behavior
+
+- The agent can attempt multiple fixes in one run (up to 3 attempts).
+- After each attempted fix, it re-runs tests and uses the new failing output for the next iteration.
+- This enables demos like `multi_failure` where failures are resolved step-by-step.
 
 ## Optional local run
 

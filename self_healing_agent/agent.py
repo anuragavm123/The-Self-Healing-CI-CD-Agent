@@ -85,14 +85,16 @@ def validate_fix(state: AgentState) -> AgentState:
         check=False,
     )
     ok = result.returncode == 0
+    latest_log = result.stdout + "\n" + result.stderr
     return {
         **state,
         "validation_ok": ok,
         "attempt": state["attempt"] + 1,
+        "log_text": latest_log,
         "notes": (
             state.get("notes", "")
             + "\nValidation output:\n"
-            + (result.stdout + "\n" + result.stderr)[-3000:]
+            + latest_log[-3000:]
         ),
     }
 
@@ -135,7 +137,7 @@ def run_self_heal(log_text: str, repo_root: str) -> AgentState:
         "repo_root": repo_root,
         "log_text": log_text,
         "attempt": 0,
-        "max_attempts": 2,
+        "max_attempts": 3,
         "root_cause": "",
         "fix": None,
         "fix_applied": False,
