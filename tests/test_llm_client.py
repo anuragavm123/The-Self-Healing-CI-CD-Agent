@@ -1,4 +1,5 @@
 from self_healing_agent.llm_client import (
+    _parse_json_response,
     _ollama_native_chat_url,
     get_llm_runtime_info,
     load_llm_config,
@@ -72,3 +73,21 @@ def test_runtime_info_reports_unconfigured_openai(monkeypatch) -> None:
     assert info["model"] is None
     assert info["base_url"] is None
     assert info["api_key_present"] is False
+
+
+def test_parse_json_response_handles_markdown_fence() -> None:
+    content = """```json
+{"reason":"r","file_path":"src/math_utils.py","old_code":"a","new_code":"b"}
+```"""
+    parsed = _parse_json_response(content)
+
+    assert parsed is not None
+    assert parsed["file_path"] == "src/math_utils.py"
+
+
+def test_parse_json_response_handles_plain_json_text() -> None:
+    content = '{"reason":"r","file_path":"src/math_utils.py","old_code":"a","new_code":"b"}'
+    parsed = _parse_json_response(content)
+
+    assert parsed is not None
+    assert parsed["new_code"] == "b"

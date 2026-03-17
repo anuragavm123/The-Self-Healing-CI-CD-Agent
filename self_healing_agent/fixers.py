@@ -80,7 +80,57 @@ def _syntax_expected_expression_fix(log_text: str, repo_root: Path) -> dict[str,
     }
 
 
+def _syntax_expected_colon_fix(log_text: str, repo_root: Path) -> dict[str, Any] | None:
+    if "SyntaxError: expected ':'" not in log_text and "SyntaxError: Expected ':'" not in log_text:
+        return None
+
+    location = _extract_syntax_location(log_text)
+    if not location:
+        return None
+
+    target_path, line_number = location
+    file_path = repo_root / target_path
+    if not file_path.exists():
+        return None
+
+    text = file_path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    index = line_number - 1
+    if index < 0 or index >= len(lines):
+        return None
+
+    broken_line = lines[index]
+    stripped = broken_line.strip()
+    if stripped.endswith(":"):
+        return None
+
+    # Limit automated fix to block-introducing Python statements.
+    header_match = re.match(
+        r"^\s*(if|elif|else|for|while|def|class|try|except|finally|with|match|case)\b",
+        broken_line,
+    )
+    if not header_match:
+        return None
+
+    if "#" in broken_line:
+        code_part, comment = broken_line.split("#", 1)
+        replacement = f"{code_part.rstrip()}:  #{comment}"
+    else:
+        replacement = f"{broken_line.rstrip()}:"
+
+    return {
+        "reason": "SyntaxError from missing colon on block statement",
+        "file_path": target_path,
+        "old_code": broken_line,
+        "new_code": replacement,
+    }
+
+
 def _rule_based_fix(log_text: str, repo_root: Path) -> dict[str, Any] | None:
+    colon_fix = _syntax_expected_colon_fix(log_text=log_text, repo_root=repo_root)
+    if colon_fix:
+        return colon_fix
+
     syntax_fix = _syntax_expected_expression_fix(log_text=log_text, repo_root=repo_root)
     if syntax_fix:
         return syntax_fix

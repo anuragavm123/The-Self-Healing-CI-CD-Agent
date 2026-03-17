@@ -66,10 +66,35 @@ def apply_code_fix(state: AgentState) -> AgentState:
     target = Path(state["repo_root"]) / fix["file_path"]
     text = target.read_text(encoding="utf-8")
 
-    if fix["old_code"] not in text:
+    old_code = str(fix["old_code"])
+    new_code = str(fix["new_code"])
+
+    if old_code in text:
+        updated = text.replace(old_code, new_code, 1)
+        target.write_text(updated, encoding="utf-8")
+        return {**state, "fix_applied": True}
+
+    # Fallback for model output that misses indentation or trailing spaces.
+    stripped_old = old_code.strip()
+    if not stripped_old:
         return {**state, "fix_applied": False}
 
-    updated = text.replace(fix["old_code"], fix["new_code"], 1)
+    lines = text.splitlines(keepends=True)
+    match_indexes = [i for i, line in enumerate(lines) if line.strip() == stripped_old]
+    if len(match_indexes) != 1:
+        return {**state, "fix_applied": False}
+
+    idx = match_indexes[0]
+    old_line = lines[idx]
+    old_indent = old_line[: len(old_line) - len(old_line.lstrip(" "))]
+    line_ending = "\n" if old_line.endswith("\n") else ""
+
+    replacement = new_code
+    if replacement and replacement == replacement.lstrip(" "):
+        replacement = old_indent + replacement
+
+    lines[idx] = replacement.rstrip("\n") + line_ending
+    updated = "".join(lines)
     target.write_text(updated, encoding="utf-8")
     return {**state, "fix_applied": True}
 
