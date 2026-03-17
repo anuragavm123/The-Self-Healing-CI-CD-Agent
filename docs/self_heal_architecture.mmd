@@ -1,0 +1,27 @@
+flowchart LR
+    A[Developer Push or Manual Dispatch] --> B[CI Job]
+    B --> C{Tests and Lint Pass?}
+
+    C -- Yes --> D[Pipeline Green]
+    C -- No --> E[Capture and Upload ci_failure.log]
+
+    E --> F[self_heal Job]
+    F --> G[LangGraph collect_failure]
+    G --> H[analyze_root_cause]
+    H --> I[propose_code_fix\nRule-based + Optional LLM]
+    I --> J{Fix Found and Applied?}
+
+    J -- No --> K[No-op with Decision Summary]
+    J -- Yes --> L[validate_fix\nRe-run pytest and ruff]
+
+    L --> M{Validation Passed?}
+    M -- No --> N{attempt < max_attempts?}
+    N -- Yes --> I
+    N -- No --> K
+
+    M -- Yes --> O{PR Gates\nToken + Changed + Event}
+    O -- No --> K
+    O -- Yes --> P[Create or Update Auto-fix PR]
+
+    P --> Q[Reviewer Approves and Merges]
+    Q --> D
