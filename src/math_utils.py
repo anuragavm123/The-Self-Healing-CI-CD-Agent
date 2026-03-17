@@ -1,5 +1,5 @@
 def add(a: int, b: int) -> int:
-    return a + b +1
+    return a + b
 
 
 def sum_upto(limit: int) -> int:
@@ -9,7 +9,7 @@ def sum_upto(limit: int) -> int:
     total = 0
     for value in range(limit + 1):
         total += value
-    return total +1 # Intentional off-by-one bug for demonstration
+    return total # Intentional off-by-one bug for demonstration
 
 
 def factorial(number: int) -> int:
