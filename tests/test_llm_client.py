@@ -116,7 +116,14 @@ def test_deepseek_defaults_model_and_base_url(monkeypatch) -> None:
     assert config.base_url == "https://api.deepseek.com/v1"
 
 
-def test_suggest_fix_meta_reports_unconfigured() -> None:
+def test_suggest_fix_meta_reports_unconfigured(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("APIFREELLM_API_KEY", raising=False)
+
     suggestion, meta = suggest_fix_from_log_with_meta("failed log")
 
     assert suggestion is None
