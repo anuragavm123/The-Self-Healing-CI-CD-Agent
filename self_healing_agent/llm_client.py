@@ -45,6 +45,13 @@ def _normalize_ollama_base_url(raw_base_url: str) -> str:
     return f"{base}/v1"
 
 
+def _normalize_deepseek_base_url(raw_base_url: str) -> str:
+    base = raw_base_url.strip().rstrip("/")
+    if base.endswith("/v1"):
+        return base
+    return f"{base}/v1"
+
+
 def _ollama_native_chat_url(base_url: str) -> str:
     base = base_url.strip().rstrip("/")
     if base.endswith("/v1"):
@@ -103,6 +110,56 @@ def _suggest_fix_via_ollama_native(log_text: str, config: LLMConfig) -> dict[str
         return None
 
 
+def _suggest_fix_via_deepseek_http(
+    log_text: str,
+    config: LLMConfig,
+    system_prompt: str,
+    user_prompt: str,
+) -> dict[str, Any] | None:
+    if not config.base_url:
+        return None
+
+    endpoint = f"{config.base_url.rstrip('/')}/chat/completions"
+    models_to_try = [config.model]
+    if config.model != "deepseek-chat":
+        models_to_try.append("deepseek-chat")
+
+    for model_name in models_to_try:
+        payload = {
+            "model": model_name,
+            "temperature": 0,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+        req = request.Request(
+            endpoint,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {config.api_key}",
+            },
+            method="POST",
+        )
+
+        try:
+            with request.urlopen(req, timeout=30) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+        except (error.URLError, json.JSONDecodeError, TimeoutError):
+            continue
+
+        content = body.get("choices", [{}])[0].get("message", {}).get("content")
+        if not content:
+            continue
+
+        parsed = _parse_json_response(content)
+        if isinstance(parsed, dict):
+            return parsed
+
+    return None
+
+
 def _parse_json_response(content: str) -> dict[str, Any] | None:
     try:
         parsed = json.loads(content)
@@ -148,8 +205,9 @@ def load_llm_config() -> LLMConfig | None:
         api_key = os.getenv("DEEPSEEK_API_KEY", "")
         if not api_key:
             return None
-        model = os.getenv("DEEPSEEK_MODEL", "deepseek-coder")
-        return LLMConfig(model=model, api_key=api_key, base_url="https://api.deepseek.com")
+        model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+        base_url = _normalize_deepseek_base_url(os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"))
+        return LLMConfig(model=model, api_key=api_key, base_url=base_url)
 
     api_key = os.getenv("OPENAI_API_KEY", "")
     if not api_key:
@@ -200,11 +258,23 @@ def suggest_fix_from_log(log_text: str) -> dict[str, Any] | None:
                 relaxed_payload.pop("response_format", None)
                 response = client.chat.completions.create(**relaxed_payload)
             except Exception:
-                return None
+                return _suggest_fix_via_deepseek_http(
+                    log_text=log_text,
+                    config=config,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                )
         else:
             return None
 
     content = response.choices[0].message.content
     if not content:
+        if provider == "deepseek":
+            return _suggest_fix_via_deepseek_http(
+                log_text=log_text,
+                config=config,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+            )
         return None
     return _parse_json_response(content)

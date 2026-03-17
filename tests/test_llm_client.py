@@ -1,4 +1,5 @@
 from self_healing_agent.llm_client import (
+    _normalize_deepseek_base_url,
     _parse_json_response,
     _ollama_native_chat_url,
     get_llm_runtime_info,
@@ -51,14 +52,14 @@ def test_ollama_native_url_from_root_base() -> None:
 def test_runtime_info_reports_deepseek_provider(monkeypatch) -> None:
     monkeypatch.setenv("LLM_PROVIDER", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "dummy-key")
-    monkeypatch.setenv("DEEPSEEK_MODEL", "deepseek-coder")
+    monkeypatch.setenv("DEEPSEEK_MODEL", "deepseek-chat")
 
     info = get_llm_runtime_info()
 
     assert info["provider"] == "deepseek"
     assert info["configured"] is True
-    assert info["model"] == "deepseek-coder"
-    assert info["base_url"] == "https://api.deepseek.com"
+    assert info["model"] == "deepseek-chat"
+    assert info["base_url"] == "https://api.deepseek.com/v1"
     assert info["api_key_present"] is True
 
 
@@ -91,3 +92,11 @@ def test_parse_json_response_handles_plain_json_text() -> None:
 
     assert parsed is not None
     assert parsed["new_code"] == "b"
+
+
+def test_normalize_deepseek_base_url_adds_v1() -> None:
+    assert _normalize_deepseek_base_url("https://api.deepseek.com") == "https://api.deepseek.com/v1"
+
+
+def test_normalize_deepseek_base_url_keeps_v1() -> None:
+    assert _normalize_deepseek_base_url("https://api.deepseek.com/v1") == "https://api.deepseek.com/v1"
