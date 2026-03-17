@@ -5,16 +5,46 @@ from pathlib import Path
 from typing import Any
 
 
-def _syntax_expected_expression_fix(log_text: str, repo_root: Path) -> dict[str, Any] | None:
-    match = re.search(
+def _resolve_repo_relative_path(raw_path: str) -> str | None:
+    normalized = raw_path.replace("\\", "/")
+    if normalized.startswith("src/"):
+        return normalized
+
+    marker = "/src/"
+    if marker in normalized:
+        return "src/" + normalized.split(marker, 1)[1]
+
+    return None
+
+
+def _extract_syntax_location(log_text: str) -> tuple[str, int] | None:
+    ruff_style = re.search(
         r"(?P<path>src/.+?\.py):(?P<line>\d+):\d+:\s+SyntaxError:\s+Expected an expression",
         log_text,
     )
-    if not match:
+    if ruff_style:
+        path = _resolve_repo_relative_path(ruff_style.group("path"))
+        if path:
+            return path, int(ruff_style.group("line"))
+
+    pytest_style = re.search(
+        r"File\s+\"(?P<path>[^\"]+?\.py)\",\s+line\s+(?P<line>\d+)",
+        log_text,
+    )
+    if pytest_style and "SyntaxError" in log_text:
+        path = _resolve_repo_relative_path(pytest_style.group("path"))
+        if path:
+            return path, int(pytest_style.group("line"))
+
+    return None
+
+
+def _syntax_expected_expression_fix(log_text: str, repo_root: Path) -> dict[str, Any] | None:
+    location = _extract_syntax_location(log_text)
+    if not location:
         return None
 
-    target_path = match.group("path")
-    line_number = int(match.group("line"))
+    target_path, line_number = location
     file_path = repo_root / target_path
     if not file_path.exists():
         return None

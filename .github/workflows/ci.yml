@@ -220,6 +220,23 @@ jobs:
           python scripts/run_self_heal.py --log-file ci_failure.log --repo-root . --output self_heal_result.json
           cat self_heal_result.json
 
+      - name: Read self-heal result
+        if: steps.heal.outcome == 'success'
+        id: heal_result
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+
+          with open("self_heal_result.json", "r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          with open("$GITHUB_OUTPUT", "a", encoding="utf-8") as out:
+              out.write(f"fix_applied={str(data.get('fix_applied', False)).lower()}\n")
+              out.write(f"validation_ok={str(data.get('validation_ok', False)).lower()}\n")
+              out.write(f"root_cause={str(data.get('root_cause', 'Unknown CI failure'))}\n")
+          PY
+
       - name: Verify fix by re-running checks
         if: steps.heal.outcome == 'success'
         id: recheck
@@ -293,6 +310,10 @@ jobs:
           {
             echo "## Self-Heal PR Decision"
             echo ""
+            echo "- Agent run success: ${{ steps.heal.outcome == 'success' }}"
+            echo "- Agent fix applied: ${{ steps.heal_result.outputs.fix_applied || 'false' }}"
+            echo "- Agent validation_ok: ${{ steps.heal_result.outputs.validation_ok || 'false' }}"
+            echo "- Agent root cause: ${{ steps.heal_result.outputs.root_cause || 'unknown' }}"
             echo "- Event is pull_request: ${{ github.event_name == 'pull_request' }}"
             echo "- Auto PR token available: ${{ steps.pr_token.outputs.available || 'false' }}"
             echo "- Fix changed files: ${{ steps.has_changes.outputs.changed || 'false' }}"
@@ -301,6 +322,30 @@ jobs:
             echo "PR is created only when: event != pull_request, token=true, changed=true, recheck=true"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: No-op when no validated fix
-        if: steps.heal.outcome != 'success' || steps.pr_token.outputs.available != 'true' || steps.has_changes.outputs.changed != 'true' || steps.recheck.outputs.passed != 'true'
-        run: echo "No validated fix produced by self-healing agent."
+      - name: Explain no-PR outcome
+        if: always()
+        shell: bash
+        run: |
+          heal_outcome="${{ steps.heal.outcome }}"
+          fix_applied="${{ steps.heal_result.outputs.fix_applied || 'false' }}"
+          validation_ok="${{ steps.heal_result.outputs.validation_ok || 'false' }}"
+          changed="${{ steps.has_changes.outputs.changed || 'false' }}"
+          recheck_passed="${{ steps.recheck.outputs.passed || 'false' }}"
+          token_available="${{ steps.pr_token.outputs.available || 'false' }}"
+          event_name="${{ github.event_name }}"
+
+          if [ "$heal_outcome" != "success" ]; then
+            echo "Self-healing agent execution failed."
+          elif [ "$fix_applied" != "true" ]; then
+            echo "No fix proposal could be safely applied from the failure log."
+          elif [ "$validation_ok" != "true" ] || [ "$recheck_passed" != "true" ]; then
+            echo "A fix was applied, but validation checks did not pass."
+          elif [ "$changed" != "true" ]; then
+            echo "Agent reported a fix, but no repository changes were detected."
+          elif [ "$event_name" = "pull_request" ]; then
+            echo "Validated fix produced, but PR creation is skipped for pull_request events."
+          elif [ "$token_available" != "true" ]; then
+            echo "Validated fix produced, but AUTO_PR_TOKEN is not configured."
+          else
+            echo "Validated fix produced; PR creation conditions were satisfied."
+          fi

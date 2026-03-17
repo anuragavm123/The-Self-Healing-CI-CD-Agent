@@ -46,3 +46,27 @@ def test_propose_fix_handles_incomplete_assignment_before_add(tmp_path: Path) ->
     assert fix["file_path"] == "src/math_utils.py"
     assert fix["old_code"] == "    total ="
     assert fix["new_code"] == "    total = 0"
+
+
+def test_propose_fix_handles_pytest_traceback_syntax_error_path(tmp_path: Path) -> None:
+    _write_file(
+        tmp_path / "src" / "math_utils.py",
+        """def factorial(number: int) -> int:
+    result =
+    for value in range(2, number + 1):
+        result *= value
+    return result
+""",
+    )
+
+    log_text = """E     File \"/home/runner/work/The-Self-Healing-CI-CD-Agent/The-Self-Healing-CI-CD-Agent/src/math_utils.py\", line 2
+E       result =
+E                ^
+E   SyntaxError: invalid syntax
+"""
+    fix = propose_fix(log_text=log_text, repo_root=tmp_path, llm_suggestion=None)
+
+    assert fix is not None
+    assert fix["file_path"] == "src/math_utils.py"
+    assert fix["old_code"] == "    result ="
+    assert fix["new_code"] == "    result = 1"
