@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -27,6 +28,12 @@ def main() -> int:
     parser.add_argument("--log-file", required=True, help="Path to CI failure log")
     parser.add_argument("--repo-root", default=".", help="Repository root")
     parser.add_argument("--output", default="self_heal_result.json", help="Result JSON path")
+    parser.add_argument(
+        "--max-attempts",
+        type=int,
+        default=int(os.getenv("SELF_HEAL_MAX_ATTEMPTS", "5")),
+        help="Maximum fix/validate iterations",
+    )
     args = parser.parse_args()
 
     log_path = Path(args.log_file)
@@ -50,6 +57,7 @@ def main() -> int:
     state = run_self_heal(
         log_text=_read_log_text(log_path),
         repo_root=str(Path(args.repo_root).resolve()),
+        max_attempts=max(1, args.max_attempts),
     )
 
     output_path = Path(args.output)

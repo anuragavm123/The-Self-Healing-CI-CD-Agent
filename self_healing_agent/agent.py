@@ -177,13 +177,13 @@ def build_agent():
     return graph.compile()
 
 
-def run_self_heal(log_text: str, repo_root: str) -> AgentState:
+def run_self_heal(log_text: str, repo_root: str, max_attempts: int = 5) -> AgentState:
     agent = build_agent()
     initial: AgentState = {
         "repo_root": repo_root,
         "log_text": log_text,
         "attempt": 0,
-        "max_attempts": 3,
+        "max_attempts": max_attempts,
         "root_cause": "",
         "fix": None,
         "fix_applied": False,
