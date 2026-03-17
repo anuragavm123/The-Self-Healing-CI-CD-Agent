@@ -286,58 +286,76 @@ def _suggest_fix_via_gemini_with_meta(
     system_prompt: str,
     user_prompt: str,
 ) -> tuple[dict[str, Any] | None, str]:
-    model_name = quote(config.model, safe="")
-    endpoint = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
-        f"?key={config.api_key}"
-    )
-    payload = {
-        "contents": [
-            {
-                "role": "user",
-                "parts": [
-                    {"text": f"{system_prompt}\n\n{user_prompt}"},
-                ],
-            }
-        ],
-        "generationConfig": {
-            "temperature": 0,
-            "responseMimeType": "application/json",
-        },
-    }
+    model_candidates = [config.model]
+    fallback_models = [
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-pro-latest",
+        "gemini-2.0-flash",
+    ]
+    for name in fallback_models:
+        if name not in model_candidates:
+            model_candidates.append(name)
 
-    req = request.Request(
-        endpoint,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+    errors: list[str] = []
+    for candidate in model_candidates:
+        clean_candidate = candidate.removeprefix("models/")
+        model_name = quote(clean_candidate, safe="")
+        endpoint = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+            f"?key={config.api_key}"
+        )
+        payload = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {"text": f"{system_prompt}\n\n{user_prompt}"},
+                    ],
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0,
+                "responseMimeType": "application/json",
+            },
+        }
 
-    try:
-        with request.urlopen(req, timeout=30) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-    except error.HTTPError as http_exc:
+        req = request.Request(
+            endpoint,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
         try:
-            response_body = http_exc.read().decode("utf-8", errors="ignore")
-        except Exception:
-            response_body = ""
-        short_body = response_body.replace("\n", " ")[:180]
-        return None, f"gemini_http:err:http_{http_exc.code}:{short_body}"
-    except (error.URLError, json.JSONDecodeError, TimeoutError) as exc:
-        return None, f"gemini_http:err:{type(exc).__name__}"
+            with request.urlopen(req, timeout=30) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+        except error.HTTPError as http_exc:
+            try:
+                response_body = http_exc.read().decode("utf-8", errors="ignore")
+            except Exception:
+                response_body = ""
+            short_body = response_body.replace("\n", " ")[:140]
+            errors.append(f"{clean_candidate}:http_{http_exc.code}:{short_body}")
+            continue
+        except (error.URLError, json.JSONDecodeError, TimeoutError) as exc:
+            errors.append(f"{clean_candidate}:{type(exc).__name__}")
+            continue
 
-    parts = body.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-    content = ""
-    if parts and isinstance(parts[0], dict):
-        content = str(parts[0].get("text", ""))
+        parts = body.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+        content = ""
+        if parts and isinstance(parts[0], dict):
+            content = str(parts[0].get("text", ""))
 
-    if not content:
-        return None, "gemini_http:err:empty_content"
+        if not content:
+            errors.append(f"{clean_candidate}:empty_content")
+            continue
 
-    parsed = _parse_json_response(content)
-    if isinstance(parsed, dict):
-        return parsed, "gemini_http:ok"
-    return None, "gemini_http:err:json_parse_failed"
+        parsed = _parse_json_response(content)
+        if isinstance(parsed, dict):
+            return parsed, f"gemini_http:ok:{clean_candidate}"
+        errors.append(f"{clean_candidate}:json_parse_failed")
+
+    return None, "gemini_http:err:" + "|".join(errors)
 
 
 def _extract_trace_file_line(log_text: str) -> tuple[str, int] | None:
@@ -561,7 +579,7 @@ def load_llm_config() -> LLMConfig | None:
         api_key = os.getenv("GEMINI_API_KEY", "") or os.getenv("GOOGLE_API_KEY", "")
         if not api_key:
             return None
-        model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+        model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash-latest")
         return LLMConfig(model=model, api_key=api_key, base_url="https://generativelanguage.googleapis.com/v1beta")
 
     api_key = os.getenv("OPENAI_API_KEY", "")

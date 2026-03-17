@@ -151,7 +151,7 @@ def test_gemini_provider_config_defaults(monkeypatch) -> None:
     config = load_llm_config()
 
     assert config is not None
-    assert config.model == "gemini-1.5-flash"
+    assert config.model == "gemini-1.5-flash-latest"
     assert config.base_url == "https://generativelanguage.googleapis.com/v1beta"
 
 
