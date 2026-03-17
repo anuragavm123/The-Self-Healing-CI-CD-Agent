@@ -189,19 +189,75 @@ def _rule_based_fix(log_text: str, repo_root: Path) -> dict[str, Any] | None:
     return None
 
 
+def _first_present(data: dict[str, Any], keys: list[str]) -> Any:
+    for key in keys:
+        if key in data and data[key] is not None:
+            return data[key]
+    return None
+
+
+def _normalize_llm_file_path(raw_path: str, repo_root: Path) -> str | None:
+    cleaned = str(raw_path).strip().strip("`\"").replace("\\", "/")
+    if not cleaned:
+        return None
+
+    direct = Path(cleaned)
+    if direct.exists():
+        try:
+            return direct.resolve().relative_to(repo_root.resolve()).as_posix()
+        except ValueError:
+            # Absolute path may still be valid as-is in runtime; keep repo-relative when possible.
+            pass
+
+    if cleaned.startswith("src/") and (repo_root / cleaned).exists():
+        return cleaned
+
+    rel_from_marker = _resolve_repo_relative_path(cleaned)
+    if rel_from_marker and (repo_root / rel_from_marker).exists():
+        return rel_from_marker
+
+    # Try filename fallback when model returns just file name.
+    if "/" not in cleaned and (repo_root / "src" / cleaned).exists():
+        return f"src/{cleaned}"
+
+    return None
+
+
+def _normalize_llm_fix(llm_suggestion: dict[str, Any] | None, repo_root: Path) -> dict[str, Any] | None:
+    if not isinstance(llm_suggestion, dict):
+        return None
+
+    payload: Any = llm_suggestion
+    if isinstance(llm_suggestion.get("fix"), dict):
+        payload = llm_suggestion["fix"]
+    elif isinstance(llm_suggestion.get("proposal"), dict):
+        payload = llm_suggestion["proposal"]
+
+    if not isinstance(payload, dict):
+        return None
+
+    reason = _first_present(payload, ["reason", "explanation", "why"])
+    file_path = _first_present(payload, ["file_path", "path", "file", "target_file"])
+    old_code = _first_present(payload, ["old_code", "old", "search", "find", "before", "original_code"])
+    new_code = _first_present(payload, ["new_code", "new", "replace", "replacement", "after", "fixed_code"])
+
+    if reason is None or file_path is None or old_code is None or new_code is None:
+        return None
+
+    normalized_path = _normalize_llm_file_path(str(file_path), repo_root)
+    if not normalized_path:
+        return None
+
+    return {
+        "reason": str(reason),
+        "file_path": normalized_path,
+        "old_code": str(old_code).strip("\n"),
+        "new_code": str(new_code).strip("\n"),
+    }
+
+
 def propose_fix(log_text: str, repo_root: Path, llm_suggestion: dict[str, Any] | None) -> dict[str, Any] | None:
-    normalized_llm: dict[str, Any] | None = None
-    if llm_suggestion:
-        required = {"reason", "file_path", "old_code", "new_code"}
-        if required.issubset(llm_suggestion):
-            candidate = repo_root / str(llm_suggestion["file_path"])
-            if candidate.exists():
-                normalized_llm = {
-                    "reason": str(llm_suggestion["reason"]),
-                    "file_path": str(llm_suggestion["file_path"]),
-                    "old_code": str(llm_suggestion["old_code"]),
-                    "new_code": str(llm_suggestion["new_code"]),
-                }
+    normalized_llm = _normalize_llm_fix(llm_suggestion=llm_suggestion, repo_root=repo_root)
 
     # Keep syntax-error fixes model-driven to avoid hardcoded syntax templates.
     if "SyntaxError" in log_text:

@@ -55,7 +55,20 @@ def propose_code_fix(state: AgentState) -> AgentState:
         repo_root=repo_root,
         llm_suggestion=llm_suggestion,
     )
-    return {**state, "fix": candidate}
+    suggestion_keys = []
+    if isinstance(llm_suggestion, dict):
+        suggestion_keys = sorted(llm_suggestion.keys())
+
+    extra_notes = (
+        state.get("notes", "")
+        + "\nLLM suggestion present: "
+        + str(llm_suggestion is not None)
+        + "; keys: "
+        + ",".join(suggestion_keys)
+        + "; candidate selected: "
+        + str(candidate is not None)
+    )
+    return {**state, "fix": candidate, "notes": extra_notes}
 
 
 def apply_code_fix(state: AgentState) -> AgentState:

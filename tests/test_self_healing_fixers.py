@@ -73,3 +73,32 @@ assert add(2, 2) == 4
     assert fix is not None
     assert fix["file_path"] == "src/math_utils.py"
     assert fix["new_code"] == "return a + b"
+
+
+def test_propose_fix_accepts_nested_fix_payload_for_syntax(tmp_path: Path) -> None:
+    _write_file(
+        tmp_path / "src" / "math_utils.py",
+        """def find_first_even(values: list[int]) -> int | None:
+    for value in values:
+        if value % 2 == 0
+            return value
+    return None
+""",
+    )
+
+    log_text = """E   SyntaxError: expected ':'"""
+    llm_suggestion = {
+        "fix": {
+            "explanation": "Missing colon in if statement",
+            "path": "/home/runner/work/The-Self-Healing-CI-CD-Agent/The-Self-Healing-CI-CD-Agent/src/math_utils.py",
+            "search": "if value % 2 == 0",
+            "replace": "if value % 2 == 0:",
+        }
+    }
+
+    fix = propose_fix(log_text=log_text, repo_root=tmp_path, llm_suggestion=llm_suggestion)
+
+    assert fix is not None
+    assert fix["file_path"] == "src/math_utils.py"
+    assert fix["old_code"] == "if value % 2 == 0"
+    assert fix["new_code"] == "if value % 2 == 0:"
