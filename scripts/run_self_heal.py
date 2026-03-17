@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from self_healing_agent.agent import run_self_heal  # noqa: E402
+from self_healing_agent.llm_client import get_llm_runtime_info  # noqa: E402
 
 
 def _read_log_text(path: Path) -> str:
@@ -31,6 +32,20 @@ def main() -> int:
     log_path = Path(args.log_file)
     if not log_path.exists():
         raise FileNotFoundError(f"Log file not found: {log_path}")
+
+    runtime = get_llm_runtime_info()
+    print(
+        "LLM runtime:",
+        json.dumps(
+            {
+                "provider": runtime.get("provider"),
+                "configured": runtime.get("configured"),
+                "model": runtime.get("model"),
+                "base_url": runtime.get("base_url"),
+                "api_key_present": runtime.get("api_key_present"),
+            }
+        ),
+    )
 
     state = run_self_heal(
         log_text=_read_log_text(log_path),
