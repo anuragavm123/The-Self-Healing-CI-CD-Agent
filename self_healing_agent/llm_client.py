@@ -227,6 +227,59 @@ def _suggest_fix_via_deepseek_http_with_meta(
     return None, "http_fallback:err:" + "|".join(errors)
 
 
+def _suggest_fix_via_custom_chat_with_meta(
+    config: LLMConfig,
+    system_prompt: str,
+    user_prompt: str,
+) -> tuple[dict[str, Any] | None, str]:
+    endpoint = os.getenv("APIFREELLM_CHAT_URL", "https://apifreellm.com/api/v1/chat")
+    payload = {
+        "model": config.model,
+        "stream": False,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+
+    req = request.Request(
+        endpoint,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {config.api_key}",
+        },
+        method="POST",
+    )
+
+    try:
+        with request.urlopen(req, timeout=30) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+    except error.HTTPError as http_exc:
+        try:
+            response_body = http_exc.read().decode("utf-8", errors="ignore")
+        except Exception:
+            response_body = ""
+        short_body = response_body.replace("\n", " ")[:180]
+        return None, f"custom_http:err:http_{http_exc.code}:{short_body}"
+    except (error.URLError, json.JSONDecodeError, TimeoutError) as exc:
+        return None, f"custom_http:err:{type(exc).__name__}"
+
+    content = (
+        body.get("choices", [{}])[0].get("message", {}).get("content")
+        or body.get("message", {}).get("content")
+        or body.get("content")
+        or body.get("response")
+    )
+    if not content:
+        return None, "custom_http:err:empty_content"
+
+    parsed = _parse_json_response(str(content))
+    if isinstance(parsed, dict):
+        return parsed, "custom_http:ok"
+    return None, "custom_http:err:json_parse_failed"
+
+
 def _extract_trace_file_line(log_text: str) -> tuple[str, int] | None:
     match = re.search(r"File\s+\"(?P<path>[^\"]+?\.py)\",\s+line\s+(?P<line>\d+)", log_text)
     if not match:
@@ -341,6 +394,15 @@ def suggest_fix_from_log_with_meta(
                 if http_fix:
                     return http_fix, "; ".join(debug_parts + [http_meta])
                 return None, "; ".join(debug_parts + [http_meta])
+        if provider in {"apifreellm", "custom"}:
+            custom_fix, custom_meta = _suggest_fix_via_custom_chat_with_meta(
+                config=config,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+            )
+            if custom_fix:
+                return custom_fix, "; ".join(debug_parts + [custom_meta])
+            return None, "; ".join(debug_parts + [custom_meta])
         else:
             return None, "; ".join(debug_parts)
 
@@ -417,6 +479,14 @@ def load_llm_config() -> LLMConfig | None:
             return None
         model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
         base_url = _normalize_deepseek_base_url(os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"))
+        return LLMConfig(model=model, api_key=api_key, base_url=base_url)
+
+    if provider in {"apifreellm", "custom"}:
+        api_key = os.getenv("APIFREELLM_API_KEY", "")
+        if not api_key:
+            return None
+        model = os.getenv("APIFREELLM_MODEL", "deepseek-chat")
+        base_url = os.getenv("APIFREELLM_BASE_URL", "https://apifreellm.com/api/v1")
         return LLMConfig(model=model, api_key=api_key, base_url=base_url)
 
     api_key = os.getenv("OPENAI_API_KEY", "")

@@ -121,3 +121,23 @@ def test_suggest_fix_meta_reports_unconfigured() -> None:
 
     assert suggestion is None
     assert isinstance(meta, str)
+
+
+def test_apifreellm_provider_config_defaults(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "apifreellm")
+    monkeypatch.setenv("APIFREELLM_API_KEY", "dummy-key")
+    monkeypatch.delenv("APIFREELLM_MODEL", raising=False)
+    monkeypatch.delenv("APIFREELLM_BASE_URL", raising=False)
+
+    config = load_llm_config()
+
+    assert config is not None
+    assert config.model == "deepseek-chat"
+    assert config.base_url == "https://apifreellm.com/api/v1"
+
+
+def test_apifreellm_provider_requires_key(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "apifreellm")
+    monkeypatch.delenv("APIFREELLM_API_KEY", raising=False)
+
+    assert load_llm_config() is None
