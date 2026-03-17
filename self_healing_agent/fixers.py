@@ -5,7 +5,56 @@ from pathlib import Path
 from typing import Any
 
 
+def _syntax_expected_expression_fix(log_text: str, repo_root: Path) -> dict[str, Any] | None:
+    match = re.search(
+        r"(?P<path>src/.+?\.py):(?P<line>\d+):\d+:\s+SyntaxError:\s+Expected an expression",
+        log_text,
+    )
+    if not match:
+        return None
+
+    target_path = match.group("path")
+    line_number = int(match.group("line"))
+    file_path = repo_root / target_path
+    if not file_path.exists():
+        return None
+
+    text = file_path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    index = line_number - 1
+    if index < 0 or index >= len(lines):
+        return None
+
+    broken_line = lines[index]
+    assign_match = re.match(r"^(?P<indent>\s*)(?P<name>[A-Za-z_]\w*)\s*=\s*$", broken_line)
+    if not assign_match:
+        return None
+
+    var_name = assign_match.group("name")
+    indent = assign_match.group("indent")
+
+    # Infer a safe initializer from nearby update patterns.
+    nearby = "\n".join(lines[index + 1 : index + 5])
+    if re.search(rf"\b{re.escape(var_name)}\s*\*=", nearby):
+        replacement = f"{indent}{var_name} = 1"
+    elif re.search(rf"\b{re.escape(var_name)}\s*\+=", nearby):
+        replacement = f"{indent}{var_name} = 0"
+    else:
+        return None
+
+    return {
+        "reason": "SyntaxError from incomplete assignment (missing expression)",
+        "file_path": target_path,
+        "old_code": broken_line,
+        "new_code": replacement,
+    }
+
+
 def _rule_based_fix(log_text: str, repo_root: Path) -> dict[str, Any] | None:
+    syntax_fix = _syntax_expected_expression_fix(log_text=log_text, repo_root=repo_root)
+    if syntax_fix:
+        return syntax_fix
+
     if "test_math_utils.py" in log_text and "add(2, 2)" in log_text and "== 4" in log_text:
         file_path = repo_root / "src" / "math_utils.py"
         if not file_path.exists():

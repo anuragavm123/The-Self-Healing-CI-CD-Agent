@@ -9,14 +9,14 @@ def sum_upto(limit: int) -> int:
     total = 0
     for value in range(limit + 1):
         total += value
-    return total # Intentional off-by-one bug for demonstration
+    return total
 
 
 def factorial(number: int) -> int:
     if number < 0:
         raise ValueError("number must be non-negative")
 
-    result = 
+    result = 1
     for value in range(2, number + 1):
         result *= value
     return result

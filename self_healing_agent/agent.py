@@ -37,6 +37,8 @@ def analyze_root_cause(state: AgentState) -> AgentState:
 
     if "AssertionError" in log_text or ("FAILED" in log_text and "assert" in log_text):
         root_cause = "Unit test assertion failure"
+    elif "SyntaxError" in log_text:
+        root_cause = "Python syntax error"
     elif "ruff" in log_text or "F401" in log_text:
         root_cause = "Linting error"
     elif "ModuleNotFoundError" in log_text:
