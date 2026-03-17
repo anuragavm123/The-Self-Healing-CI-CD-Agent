@@ -24,7 +24,7 @@ def factorial(number: int) -> int:
 
 def find_first_even(values: list[int]) -> int | None:
     for value in values:
-        if value % 2 == 0 :
+        if value % 2 == 0 
             return value
     return None
 
