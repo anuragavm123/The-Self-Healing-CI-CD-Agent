@@ -163,6 +163,70 @@ def _suggest_fix_via_deepseek_http(
     return None
 
 
+def _suggest_fix_via_deepseek_http_with_meta(
+    log_text: str,
+    config: LLMConfig,
+    system_prompt: str,
+    user_prompt: str,
+) -> tuple[dict[str, Any] | None, str]:
+    if not config.base_url:
+        return None, "http_fallback:no_base_url"
+
+    endpoint = f"{config.base_url.rstrip('/')}/chat/completions"
+    models_to_try = [config.model]
+    if config.model != "deepseek-chat":
+        models_to_try.append("deepseek-chat")
+    if "deepseek-reasoner" not in models_to_try:
+        models_to_try.append("deepseek-reasoner")
+
+    errors: list[str] = []
+    for model_name in models_to_try:
+        payload = {
+            "model": model_name,
+            "temperature": 0,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+        req = request.Request(
+            endpoint,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {config.api_key}",
+            },
+            method="POST",
+        )
+
+        try:
+            with request.urlopen(req, timeout=30) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+        except error.HTTPError as http_exc:
+            try:
+                response_body = http_exc.read().decode("utf-8", errors="ignore")
+            except Exception:
+                response_body = ""
+            short_body = response_body.replace("\n", " ")[:180]
+            errors.append(f"{model_name}:http_{http_exc.code}:{short_body}")
+            continue
+        except (error.URLError, json.JSONDecodeError, TimeoutError) as exc:
+            errors.append(f"{model_name}:{type(exc).__name__}")
+            continue
+
+        content = body.get("choices", [{}])[0].get("message", {}).get("content")
+        if not content:
+            errors.append(f"{model_name}:empty_content")
+            continue
+
+        parsed = _parse_json_response(content)
+        if isinstance(parsed, dict):
+            return parsed, f"http_fallback:ok:{model_name}"
+        errors.append(f"{model_name}:json_parse_failed")
+
+    return None, "http_fallback:err:" + "|".join(errors)
+
+
 def _extract_trace_file_line(log_text: str) -> tuple[str, int] | None:
     match = re.search(r"File\s+\"(?P<path>[^\"]+?\.py)\",\s+line\s+(?P<line>\d+)", log_text)
     if not match:
@@ -250,7 +314,7 @@ def suggest_fix_from_log_with_meta(
         response = client.chat.completions.create(**request_payload)
         debug_parts.append("sdk_json_mode:ok")
     except Exception as exc:
-        debug_parts.append(f"sdk_json_mode:err:{type(exc).__name__}")
+        debug_parts.append(f"sdk_json_mode:err:{type(exc).__name__}:{str(exc)[:180]}")
 
         # Some Ollama setups expose only native endpoints (/api/*), not /v1.
         if provider == "ollama" and "404" in str(exc):
@@ -267,16 +331,16 @@ def suggest_fix_from_log_with_meta(
                 response = client.chat.completions.create(**relaxed_payload)
                 debug_parts.append("sdk_relaxed_mode:ok")
             except Exception as relaxed_exc:
-                debug_parts.append(f"sdk_relaxed_mode:err:{type(relaxed_exc).__name__}")
-                http_fix = _suggest_fix_via_deepseek_http(
+                debug_parts.append(f"sdk_relaxed_mode:err:{type(relaxed_exc).__name__}:{str(relaxed_exc)[:180]}")
+                http_fix, http_meta = _suggest_fix_via_deepseek_http_with_meta(
                     log_text=log_text,
                     config=config,
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                 )
                 if http_fix:
-                    return http_fix, "deepseek_http_fallback:ok"
-                return None, "; ".join(debug_parts + ["deepseek_http_fallback:err"])
+                    return http_fix, "; ".join(debug_parts + [http_meta])
+                return None, "; ".join(debug_parts + [http_meta])
         else:
             return None, "; ".join(debug_parts)
 
@@ -287,15 +351,15 @@ def suggest_fix_from_log_with_meta(
     if not content:
         debug_parts.append("empty_content")
         if provider == "deepseek":
-            http_fix = _suggest_fix_via_deepseek_http(
+            http_fix, http_meta = _suggest_fix_via_deepseek_http_with_meta(
                 log_text=log_text,
                 config=config,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
             )
             if http_fix:
-                return http_fix, "; ".join(debug_parts + ["deepseek_http_fallback:ok"])
-            return None, "; ".join(debug_parts + ["deepseek_http_fallback:err"])
+                return http_fix, "; ".join(debug_parts + [http_meta])
+            return None, "; ".join(debug_parts + [http_meta])
         return None, "; ".join(debug_parts)
 
     parsed = _parse_json_response(content)
