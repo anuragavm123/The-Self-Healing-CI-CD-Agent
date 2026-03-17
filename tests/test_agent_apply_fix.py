@@ -30,6 +30,7 @@ def test_apply_code_fix_fallback_matches_stripped_line(tmp_path: Path) -> None:
         },
         "fix_applied": False,
         "validation_ok": False,
+        "llm_meta": "",
         "notes": "",
     }
 

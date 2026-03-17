@@ -56,6 +56,7 @@ def main() -> int:
     output_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
     print("Root cause:", state.get("root_cause"))
+    print("LLM meta:", state.get("llm_meta"))
     print("Fix applied:", state.get("fix_applied"))
     print("Validation passed:", state.get("validation_ok"))
 

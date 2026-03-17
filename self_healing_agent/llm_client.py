@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from pathlib import Path
 from dataclasses import dataclass
 from urllib import error, request
 from typing import Any
@@ -162,7 +163,58 @@ def _suggest_fix_via_deepseek_http(
     return None
 
 
-def suggest_fix_from_log_with_meta(log_text: str) -> tuple[dict[str, Any] | None, str]:
+def _extract_trace_file_line(log_text: str) -> tuple[str, int] | None:
+    match = re.search(r"File\s+\"(?P<path>[^\"]+?\.py)\",\s+line\s+(?P<line>\d+)", log_text)
+    if not match:
+        return None
+    return match.group("path"), int(match.group("line"))
+
+
+def _build_code_context(log_text: str, repo_root: str | Path | None) -> str:
+    if repo_root is None:
+        return ""
+
+    location = _extract_trace_file_line(log_text)
+    if not location:
+        return ""
+
+    raw_path, line_number = location
+    root = Path(repo_root)
+    normalized = raw_path.replace("\\", "/")
+    marker = "/src/"
+    if normalized.startswith("src/"):
+        rel_path = normalized
+    elif marker in normalized:
+        rel_path = "src/" + normalized.split(marker, 1)[1]
+    else:
+        rel_path = normalized
+
+    target = root / rel_path
+    if not target.exists():
+        return ""
+
+    lines = target.read_text(encoding="utf-8").splitlines()
+    if not lines:
+        return ""
+
+    start = max(1, line_number - 3)
+    end = min(len(lines), line_number + 3)
+    snippet = "\n".join(f"{idx}: {lines[idx - 1]}" for idx in range(start, end + 1))
+    return (
+        "\n\nCode context around failing location:\n"
+        f"- file: {rel_path}\n"
+        f"- line: {line_number}\n"
+        "```python\n"
+        f"{snippet}\n"
+        "```\n"
+        "Use exact text from this snippet for old_code/new_code when possible."
+    )
+
+
+def suggest_fix_from_log_with_meta(
+    log_text: str,
+    repo_root: str | Path | None = None,
+) -> tuple[dict[str, Any] | None, str]:
     config = load_llm_config()
     if not config:
         return None, "LLM not configured"
@@ -178,6 +230,7 @@ def suggest_fix_from_log_with_meta(log_text: str) -> tuple[dict[str, Any] | None
         "Analyze this failing test/lint log and propose a minimal safe code fix. "
         "Only propose one fix.\n\n"
         f"{log_text[:14000]}"
+        f"{_build_code_context(log_text=log_text, repo_root=repo_root)}"
     )
 
     request_payload: dict[str, Any] = {
@@ -309,6 +362,6 @@ def load_llm_config() -> LLMConfig | None:
     return LLMConfig(model=model, api_key=api_key)
 
 
-def suggest_fix_from_log(log_text: str) -> dict[str, Any] | None:
-    suggestion, _meta = suggest_fix_from_log_with_meta(log_text)
+def suggest_fix_from_log(log_text: str, repo_root: str | Path | None = None) -> dict[str, Any] | None:
+    suggestion, _meta = suggest_fix_from_log_with_meta(log_text, repo_root=repo_root)
     return suggestion

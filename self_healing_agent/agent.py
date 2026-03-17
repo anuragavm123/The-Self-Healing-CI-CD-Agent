@@ -19,6 +19,7 @@ class AgentState(TypedDict):
     fix: dict[str, Any] | None
     fix_applied: bool
     validation_ok: bool
+    llm_meta: str
     notes: str
 
 
@@ -49,7 +50,10 @@ def analyze_root_cause(state: AgentState) -> AgentState:
 
 def propose_code_fix(state: AgentState) -> AgentState:
     repo_root = Path(state["repo_root"])
-    llm_suggestion, llm_meta = suggest_fix_from_log_with_meta(state["log_text"])
+    llm_suggestion, llm_meta = suggest_fix_from_log_with_meta(
+        state["log_text"],
+        repo_root=repo_root,
+    )
     candidate = propose_fix(
         log_text=state["log_text"],
         repo_root=repo_root,
@@ -70,7 +74,7 @@ def propose_code_fix(state: AgentState) -> AgentState:
         + "; candidate selected: "
         + str(candidate is not None)
     )
-    return {**state, "fix": candidate, "notes": extra_notes}
+    return {**state, "fix": candidate, "llm_meta": llm_meta, "notes": extra_notes}
 
 
 def apply_code_fix(state: AgentState) -> AgentState:
@@ -184,6 +188,7 @@ def run_self_heal(log_text: str, repo_root: str) -> AgentState:
         "fix": None,
         "fix_applied": False,
         "validation_ok": False,
+        "llm_meta": "",
         "notes": "",
     }
     return agent.invoke(initial)
