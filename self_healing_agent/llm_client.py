@@ -123,6 +123,8 @@ def _suggest_fix_via_deepseek_http(
     models_to_try = [config.model]
     if config.model != "deepseek-chat":
         models_to_try.append("deepseek-chat")
+    if "deepseek-reasoner" not in models_to_try:
+        models_to_try.append("deepseek-reasoner")
 
     for model_name in models_to_try:
         payload = {
@@ -158,6 +160,97 @@ def _suggest_fix_via_deepseek_http(
             return parsed
 
     return None
+
+
+def suggest_fix_from_log_with_meta(log_text: str) -> tuple[dict[str, Any] | None, str]:
+    config = load_llm_config()
+    if not config:
+        return None, "LLM not configured"
+
+    provider = os.getenv("LLM_PROVIDER", "openai").lower()
+
+    client = OpenAI(api_key=config.api_key, base_url=config.base_url)
+    system_prompt = (
+        "You are a CI self-healing assistant. Return strict JSON only with keys: "
+        "reason, file_path, old_code, new_code."
+    )
+    user_prompt = (
+        "Analyze this failing test/lint log and propose a minimal safe code fix. "
+        "Only propose one fix.\n\n"
+        f"{log_text[:14000]}"
+    )
+
+    request_payload: dict[str, Any] = {
+        "model": config.model,
+        "temperature": 0,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+
+    debug_parts: list[str] = []
+    response = None
+
+    try:
+        response = client.chat.completions.create(**request_payload)
+        debug_parts.append("sdk_json_mode:ok")
+    except Exception as exc:
+        debug_parts.append(f"sdk_json_mode:err:{type(exc).__name__}")
+
+        # Some Ollama setups expose only native endpoints (/api/*), not /v1.
+        if provider == "ollama" and "404" in str(exc):
+            native = _suggest_fix_via_ollama_native(log_text=log_text, config=config)
+            if native:
+                return native, "ollama_native:ok"
+            return None, "ollama_native:err"
+
+        # Some DeepSeek model variants reject response_format; retry with plain text output.
+        if provider == "deepseek":
+            try:
+                relaxed_payload = dict(request_payload)
+                relaxed_payload.pop("response_format", None)
+                response = client.chat.completions.create(**relaxed_payload)
+                debug_parts.append("sdk_relaxed_mode:ok")
+            except Exception as relaxed_exc:
+                debug_parts.append(f"sdk_relaxed_mode:err:{type(relaxed_exc).__name__}")
+                http_fix = _suggest_fix_via_deepseek_http(
+                    log_text=log_text,
+                    config=config,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                )
+                if http_fix:
+                    return http_fix, "deepseek_http_fallback:ok"
+                return None, "; ".join(debug_parts + ["deepseek_http_fallback:err"])
+        else:
+            return None, "; ".join(debug_parts)
+
+    if response is None:
+        return None, "; ".join(debug_parts + ["no_response_object"])
+
+    content = response.choices[0].message.content
+    if not content:
+        debug_parts.append("empty_content")
+        if provider == "deepseek":
+            http_fix = _suggest_fix_via_deepseek_http(
+                log_text=log_text,
+                config=config,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+            )
+            if http_fix:
+                return http_fix, "; ".join(debug_parts + ["deepseek_http_fallback:ok"])
+            return None, "; ".join(debug_parts + ["deepseek_http_fallback:err"])
+        return None, "; ".join(debug_parts)
+
+    parsed = _parse_json_response(content)
+    if parsed is None:
+        preview = content[:120].replace("\n", " ")
+        return None, "; ".join(debug_parts + [f"json_parse:err:{preview}"])
+
+    return parsed, "; ".join(debug_parts + ["json_parse:ok"])
 
 
 def _parse_json_response(content: str) -> dict[str, Any] | None:
@@ -217,64 +310,5 @@ def load_llm_config() -> LLMConfig | None:
 
 
 def suggest_fix_from_log(log_text: str) -> dict[str, Any] | None:
-    config = load_llm_config()
-    if not config:
-        return None
-
-    provider = os.getenv("LLM_PROVIDER", "openai").lower()
-
-    client = OpenAI(api_key=config.api_key, base_url=config.base_url)
-    system_prompt = (
-        "You are a CI self-healing assistant. Return strict JSON only with keys: "
-        "reason, file_path, old_code, new_code."
-    )
-    user_prompt = (
-        "Analyze this failing test/lint log and propose a minimal safe code fix. "
-        "Only propose one fix.\n\n"
-        f"{log_text[:14000]}"
-    )
-
-    request_payload: dict[str, Any] = {
-        "model": config.model,
-        "temperature": 0,
-        "response_format": {"type": "json_object"},
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-    }
-
-    try:
-        response = client.chat.completions.create(**request_payload)
-    except Exception as exc:
-        # Some Ollama setups expose only native endpoints (/api/*), not /v1.
-        if provider == "ollama" and "404" in str(exc):
-            return _suggest_fix_via_ollama_native(log_text=log_text, config=config)
-
-        # Some DeepSeek model variants reject response_format; retry with plain text output.
-        if provider == "deepseek":
-            try:
-                relaxed_payload = dict(request_payload)
-                relaxed_payload.pop("response_format", None)
-                response = client.chat.completions.create(**relaxed_payload)
-            except Exception:
-                return _suggest_fix_via_deepseek_http(
-                    log_text=log_text,
-                    config=config,
-                    system_prompt=system_prompt,
-                    user_prompt=user_prompt,
-                )
-        else:
-            return None
-
-    content = response.choices[0].message.content
-    if not content:
-        if provider == "deepseek":
-            return _suggest_fix_via_deepseek_http(
-                log_text=log_text,
-                config=config,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-            )
-        return None
-    return _parse_json_response(content)
+    suggestion, _meta = suggest_fix_from_log_with_meta(log_text)
+    return suggestion

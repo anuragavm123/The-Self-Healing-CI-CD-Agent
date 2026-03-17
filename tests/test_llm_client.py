@@ -4,6 +4,7 @@ from self_healing_agent.llm_client import (
     _ollama_native_chat_url,
     get_llm_runtime_info,
     load_llm_config,
+    suggest_fix_from_log_with_meta,
 )
 
 
@@ -100,3 +101,23 @@ def test_normalize_deepseek_base_url_adds_v1() -> None:
 
 def test_normalize_deepseek_base_url_keeps_v1() -> None:
     assert _normalize_deepseek_base_url("https://api.deepseek.com/v1") == "https://api.deepseek.com/v1"
+
+
+def test_deepseek_defaults_model_and_base_url(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "dummy-key")
+    monkeypatch.delenv("DEEPSEEK_MODEL", raising=False)
+    monkeypatch.delenv("DEEPSEEK_BASE_URL", raising=False)
+
+    config = load_llm_config()
+
+    assert config is not None
+    assert config.model == "deepseek-chat"
+    assert config.base_url == "https://api.deepseek.com/v1"
+
+
+def test_suggest_fix_meta_reports_unconfigured() -> None:
+    suggestion, meta = suggest_fix_from_log_with_meta("failed log")
+
+    assert suggestion is None
+    assert isinstance(meta, str)

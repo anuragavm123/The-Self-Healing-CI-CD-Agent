@@ -7,7 +7,7 @@ from typing import Any, TypedDict
 from langgraph.graph import END, StateGraph
 
 from self_healing_agent.fixers import propose_fix
-from self_healing_agent.llm_client import suggest_fix_from_log
+from self_healing_agent.llm_client import suggest_fix_from_log_with_meta
 
 
 class AgentState(TypedDict):
@@ -49,7 +49,7 @@ def analyze_root_cause(state: AgentState) -> AgentState:
 
 def propose_code_fix(state: AgentState) -> AgentState:
     repo_root = Path(state["repo_root"])
-    llm_suggestion = suggest_fix_from_log(state["log_text"])
+    llm_suggestion, llm_meta = suggest_fix_from_log_with_meta(state["log_text"])
     candidate = propose_fix(
         log_text=state["log_text"],
         repo_root=repo_root,
@@ -63,6 +63,8 @@ def propose_code_fix(state: AgentState) -> AgentState:
         state.get("notes", "")
         + "\nLLM suggestion present: "
         + str(llm_suggestion is not None)
+        + "; llm_meta: "
+        + llm_meta
         + "; keys: "
         + ",".join(suggestion_keys)
         + "; candidate selected: "
