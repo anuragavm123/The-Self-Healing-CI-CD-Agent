@@ -190,24 +190,25 @@ def _rule_based_fix(log_text: str, repo_root: Path) -> dict[str, Any] | None:
 
 
 def propose_fix(log_text: str, repo_root: Path, llm_suggestion: dict[str, Any] | None) -> dict[str, Any] | None:
+    normalized_llm: dict[str, Any] | None = None
+    if llm_suggestion:
+        required = {"reason", "file_path", "old_code", "new_code"}
+        if required.issubset(llm_suggestion):
+            candidate = repo_root / str(llm_suggestion["file_path"])
+            if candidate.exists():
+                normalized_llm = {
+                    "reason": str(llm_suggestion["reason"]),
+                    "file_path": str(llm_suggestion["file_path"]),
+                    "old_code": str(llm_suggestion["old_code"]),
+                    "new_code": str(llm_suggestion["new_code"]),
+                }
+
+    # Keep syntax-error fixes model-driven to avoid hardcoded syntax templates.
+    if "SyntaxError" in log_text:
+        return normalized_llm
+
     rule_fix = _rule_based_fix(log_text=log_text, repo_root=repo_root)
     if rule_fix:
         return rule_fix
 
-    if not llm_suggestion:
-        return None
-
-    required = {"reason", "file_path", "old_code", "new_code"}
-    if not required.issubset(llm_suggestion):
-        return None
-
-    candidate = repo_root / llm_suggestion["file_path"]
-    if not candidate.exists():
-        return None
-
-    return {
-        "reason": str(llm_suggestion["reason"]),
-        "file_path": str(llm_suggestion["file_path"]),
-        "old_code": str(llm_suggestion["old_code"]),
-        "new_code": str(llm_suggestion["new_code"]),
-    }
+    return normalized_llm
