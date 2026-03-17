@@ -16,7 +16,7 @@ def factorial(number: int) -> int:
     if number < 0:
         raise ValueError("number must be non-negative")
 
-    result = 1
+    result = 
     for value in range(2, number + 1):
         result *= value
     return result
