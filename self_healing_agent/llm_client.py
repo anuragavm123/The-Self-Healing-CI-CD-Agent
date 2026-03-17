@@ -5,6 +5,7 @@ import os
 import re
 from pathlib import Path
 from dataclasses import dataclass
+from urllib.parse import quote
 from urllib import error, request
 from typing import Any
 
@@ -280,6 +281,65 @@ def _suggest_fix_via_custom_chat_with_meta(
     return None, "custom_http:err:json_parse_failed"
 
 
+def _suggest_fix_via_gemini_with_meta(
+    config: LLMConfig,
+    system_prompt: str,
+    user_prompt: str,
+) -> tuple[dict[str, Any] | None, str]:
+    model_name = quote(config.model, safe="")
+    endpoint = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+        f"?key={config.api_key}"
+    )
+    payload = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {"text": f"{system_prompt}\n\n{user_prompt}"},
+                ],
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0,
+            "responseMimeType": "application/json",
+        },
+    }
+
+    req = request.Request(
+        endpoint,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with request.urlopen(req, timeout=30) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+    except error.HTTPError as http_exc:
+        try:
+            response_body = http_exc.read().decode("utf-8", errors="ignore")
+        except Exception:
+            response_body = ""
+        short_body = response_body.replace("\n", " ")[:180]
+        return None, f"gemini_http:err:http_{http_exc.code}:{short_body}"
+    except (error.URLError, json.JSONDecodeError, TimeoutError) as exc:
+        return None, f"gemini_http:err:{type(exc).__name__}"
+
+    parts = body.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+    content = ""
+    if parts and isinstance(parts[0], dict):
+        content = str(parts[0].get("text", ""))
+
+    if not content:
+        return None, "gemini_http:err:empty_content"
+
+    parsed = _parse_json_response(content)
+    if isinstance(parsed, dict):
+        return parsed, "gemini_http:ok"
+    return None, "gemini_http:err:json_parse_failed"
+
+
 def _extract_trace_file_line(log_text: str) -> tuple[str, int] | None:
     match = re.search(r"File\s+\"(?P<path>[^\"]+?\.py)\",\s+line\s+(?P<line>\d+)", log_text)
     if not match:
@@ -338,7 +398,6 @@ def suggest_fix_from_log_with_meta(
 
     provider = os.getenv("LLM_PROVIDER", "openai").lower()
 
-    client = OpenAI(api_key=config.api_key, base_url=config.base_url)
     system_prompt = (
         "You are a CI self-healing assistant. Return strict JSON only with keys: "
         "reason, file_path, old_code, new_code."
@@ -349,6 +408,15 @@ def suggest_fix_from_log_with_meta(
         f"{log_text[:14000]}"
         f"{_build_code_context(log_text=log_text, repo_root=repo_root)}"
     )
+
+    if provider == "gemini":
+        return _suggest_fix_via_gemini_with_meta(
+            config=config,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+
+    client = OpenAI(api_key=config.api_key, base_url=config.base_url)
 
     request_payload: dict[str, Any] = {
         "model": config.model,
@@ -488,6 +556,13 @@ def load_llm_config() -> LLMConfig | None:
         model = os.getenv("APIFREELLM_MODEL", "deepseek-chat")
         base_url = os.getenv("APIFREELLM_BASE_URL", "https://apifreellm.com/api/v1")
         return LLMConfig(model=model, api_key=api_key, base_url=base_url)
+
+    if provider == "gemini":
+        api_key = os.getenv("GEMINI_API_KEY", "") or os.getenv("GOOGLE_API_KEY", "")
+        if not api_key:
+            return None
+        model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+        return LLMConfig(model=model, api_key=api_key, base_url="https://generativelanguage.googleapis.com/v1beta")
 
     api_key = os.getenv("OPENAI_API_KEY", "")
     if not api_key:

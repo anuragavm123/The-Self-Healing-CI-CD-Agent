@@ -141,3 +141,23 @@ def test_apifreellm_provider_requires_key(monkeypatch) -> None:
     monkeypatch.delenv("APIFREELLM_API_KEY", raising=False)
 
     assert load_llm_config() is None
+
+
+def test_gemini_provider_config_defaults(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("GEMINI_API_KEY", "dummy-key")
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
+
+    config = load_llm_config()
+
+    assert config is not None
+    assert config.model == "gemini-1.5-flash"
+    assert config.base_url == "https://generativelanguage.googleapis.com/v1beta"
+
+
+def test_gemini_provider_requires_key(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+
+    assert load_llm_config() is None
