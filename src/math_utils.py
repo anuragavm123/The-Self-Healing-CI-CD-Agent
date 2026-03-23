@@ -55,7 +55,7 @@ def word_count(text: str) -> int:
     count = 0
     for _word in normalized.split(" "):
         count += 1
-    return count
+    return count + 1
 
 
 def deduplicate_preserve_order(items: list[str]) -> list[str]:
@@ -68,4 +68,5 @@ def deduplicate_preserve_order(items: list[str]) -> list[str]:
             result.append(item)
 
     return result
+
 
